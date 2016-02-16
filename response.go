@@ -15,6 +15,7 @@ type CssSearcher interface {
 }
 
 type Response struct {
+	Url     string
 	Content []byte
 }
 
