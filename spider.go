@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
+//ResponseParseHandler is a defintion for the function to be called to parse data
 type ResponseParseHandler func(response *Response) ParseResult
+
+//ItemPipelineHandler is a definition for the function to be called to process data
 type ItemPipelineHandler func()
 
 // Spider is an object that will perform crawling and parsing of content
@@ -45,6 +48,7 @@ func NewSpider(startUrls []string, parseHandler ResponseParseHandler, itemHandle
 	return &spider
 }
 
+// Start triggers the scraping pipeline process
 func (s *Spider) Start() {
 	count := 1
 	for i := 1; i <= count; i++ {
@@ -62,7 +66,12 @@ func (s *Spider) Start() {
 	for j := 1; j <= count*2; j++ {
 		s.stopChannel <- struct{}{}
 	}
+
+	// Cleanup
 	time.Sleep(1000 * time.Millisecond)
+	close(s.linksChannel)
+	close(s.parseChannel)
+	close(s.stopChannel)
 }
 
 // Crawl all pages defined as start pages
