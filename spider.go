@@ -1,7 +1,6 @@
 package goscrape
 
 import (
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -13,21 +12,33 @@ import (
 type ResponseParseHandler func(response *Response) ParseResult
 
 //ItemPipelineHandler is a definition for the function to be called to process data
-type ItemPipelineHandler func()
+type ItemPipelineHandler func(parsedItem ParseItem)
+
+//URLRecord is a tool to help keep track of URL specific properties
+type URLRecord struct {
+	Retries uint8
+	Wait    time.Duration
+}
 
 // Spider is an object that will perform crawling and parsing of content
 type Spider struct {
-	Context      ScrapeContext
+	// User specific configs
 	StartUrls    []string
 	parseHandler ResponseParseHandler
 	itemHandler  ItemPipelineHandler
+
+	// Channels
 	parseChannel chan *Response
 	linksChannel chan string
 	stopChannel  chan struct{}
-	seenLinks    map[string]bool
-	mu           sync.Mutex
-	wg           sync.WaitGroup
-	wgMu         sync.RWMutex
+
+	// URL tracking
+	seenLinks map[string]*URLRecord
+	linksMu   sync.Mutex
+
+	// Workers
+	workersWg sync.WaitGroup
+	workersMu sync.RWMutex
 }
 
 // NewSpider creates and returns an initialized instance of a spider
@@ -39,10 +50,10 @@ func NewSpider(startUrls []string, parseHandler ResponseParseHandler, itemHandle
 		linksChannel: make(chan string),
 		parseChannel: make(chan *Response),
 		stopChannel:  make(chan struct{}),
-		seenLinks:    make(map[string]bool),
-		mu:           sync.Mutex{},
-		wg:           sync.WaitGroup{},
-		wgMu:         sync.RWMutex{},
+		seenLinks:    make(map[string]*URLRecord),
+		linksMu:      sync.Mutex{},
+		workersWg:    sync.WaitGroup{},
+		workersMu:    sync.RWMutex{},
 	}
 
 	return &spider
@@ -58,10 +69,10 @@ func (s *Spider) Start() {
 
 	for _, url := range s.StartUrls {
 		log.Println("Starting with " + url)
-		s.wg.Add(len(s.StartUrls))
+		s.workersWg.Add(len(s.StartUrls))
 		go func(url string) { s.linksChannel <- url }(url)
 	}
-	s.wg.Wait()
+	s.workersWg.Wait()
 
 	for j := 1; j <= count*2; j++ {
 		s.stopChannel <- struct{}{}
@@ -86,24 +97,32 @@ LOOP:
 			// pass
 		}
 
-		s.mu.Lock()
-		if s.seenLinks[url] {
-			s.mu.Unlock()
-			s.wg.Done()
+		s.linksMu.Lock()
+		if _, ok := s.seenLinks[url]; ok {
+			s.linksMu.Unlock()
+			s.workersWg.Done()
 			continue
 		}
-		s.seenLinks[url] = true
-		s.mu.Unlock()
+
+		s.seenLinks[url] = &URLRecord{
+			Retries: 1,
+			Wait:    1000 * time.Millisecond,
+		}
+
+		s.linksMu.Unlock()
 
 		log.Println("Crawl - Got URL: " + url)
 
 		content, err := s.fetchContent(url)
 
 		if err != nil {
+			s.seenLinks[url].Retries++
 			go func() {
 				// Sleep for 1 second and then retry the same URL
-				time.Sleep(1000 * time.Millisecond)
+				time.Sleep(s.seenLinks[url].Wait)
 				s.linksChannel <- url
+
+				s.seenLinks[url].Wait *= 2
 			}()
 			continue
 		}
@@ -128,9 +147,9 @@ LOOP:
 		item := s.parseHandler(response)
 
 		if item.Urls != nil && len(item.Urls) > 0 {
-			s.wgMu.Lock()
-			s.wg.Add(len(item.Urls))
-			s.wgMu.Unlock()
+			s.workersMu.Lock()
+			s.workersWg.Add(len(item.Urls))
+			s.workersMu.Unlock()
 
 			go func(item ParseResult) {
 				for _, url := range item.Urls {
@@ -139,23 +158,30 @@ LOOP:
 			}(item)
 		}
 
-		s.wg.Done()
+		if s.itemHandler != nil && item.Items != nil && len(item.Items) > 0 {
+			for _, item := range item.Items {
+				go s.itemHandler(item)
+			}
+		}
+
+		s.workersWg.Done()
+		response.Close()
 	}
 }
 
 func (s *Spider) fetchContent(url string) (*Response, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Println(fmt.Errorf("Error downloading content"))
+		log.Println("Error downloading content")
 		return nil, err
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading content")
+		log.Println("Error reading content")
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	return &Response{Url: url, Content: body}, nil
+	return NewResponse(url, body)
 }
