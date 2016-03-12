@@ -114,7 +114,7 @@ LOOP:
 		}
 
 		s.seenLinks[url] = &URLRecord{
-			Retries: 1,
+			Retries: 0,
 			Wait:    s.Configs.GetRetryDuration(),
 		}
 
@@ -126,6 +126,9 @@ LOOP:
 
 		if err != nil {
 			s.seenLinks[url].Retries++
+			if s.seenLinks[url].Retries >= s.Configs.GetRetryMaxCount() {
+				return
+			}
 			go func() {
 				// Sleep for the amout of "wait" second and then retry the same URL
 				time.Sleep(s.seenLinks[url].Wait)

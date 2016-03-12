@@ -23,7 +23,7 @@ type Configs struct {
 	RetryDuration time.Duration
 
 	// Link failure maximum retries
-	RetryMaxCount int
+	RetryMaxCount uint8
 }
 
 func (configs *Configs) GetRequest() http.Request {
@@ -51,7 +51,7 @@ func (configs *Configs) GetRetryDuration() time.Duration {
 	return configs.RetryDuration
 }
 
-func (configs *Configs) GetRetryMaxCount() int {
+func (configs *Configs) GetRetryMaxCount() uint8 {
 	if configs.RetryMaxCount == 0 {
 		return 3
 	}
