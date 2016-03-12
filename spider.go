@@ -20,6 +20,12 @@ type URLRecord struct {
 	Wait    time.Duration
 }
 
+// Response defines the attributes of parse response
+type Response struct {
+	URL     string
+	Content []byte
+}
+
 // Spider is an object that will perform crawling and parsing of content
 type Spider struct {
 	// User specific configs
@@ -118,7 +124,7 @@ LOOP:
 		if err != nil {
 			s.seenLinks[url].Retries++
 			go func() {
-				// Sleep for 1 second and then retry the same URL
+				// Sleep for the amout of "wait" second and then retry the same URL
 				time.Sleep(s.seenLinks[url].Wait)
 				s.linksChannel <- url
 
@@ -165,7 +171,6 @@ LOOP:
 		}
 
 		s.workersWg.Done()
-		response.Close()
 	}
 }
 
@@ -183,5 +188,10 @@ func (s *Spider) fetchContent(url string) (*Response, error) {
 	}
 	defer resp.Body.Close()
 
-	return NewResponse(url, body)
+	response := Response{
+		URL:     url,
+		Content: body,
+	}
+
+	return &response, nil
 }
