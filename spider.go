@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -28,8 +29,10 @@ type Response struct {
 
 // Spider is an object that will perform crawling and parsing of content
 type Spider struct {
+	// Configuration instance
+	Configs *Configs
+
 	// User specific configs
-	StartUrls    []string
 	parseHandler ResponseParseHandler
 	itemHandler  ItemPipelineHandler
 
@@ -48,9 +51,9 @@ type Spider struct {
 }
 
 // NewSpider creates and returns an initialized instance of a spider
-func NewSpider(startUrls []string, parseHandler ResponseParseHandler, itemHandler ItemPipelineHandler) *Spider {
+func NewSpider(configs *Configs, parseHandler ResponseParseHandler, itemHandler ItemPipelineHandler) *Spider {
 	spider := Spider{
-		StartUrls:    startUrls,
+		Configs:      configs,
 		parseHandler: parseHandler,
 		itemHandler:  itemHandler,
 		linksChannel: make(chan string),
@@ -67,20 +70,20 @@ func NewSpider(startUrls []string, parseHandler ResponseParseHandler, itemHandle
 
 // Start triggers the scraping pipeline process
 func (s *Spider) Start() {
-	count := 1
-	for i := 1; i <= count; i++ {
+	workersCount := s.Configs.GetWorkersCount()
+	for i := 1; i <= workersCount; i++ {
 		go s.crawl()
 		go s.parse()
 	}
 
-	for _, url := range s.StartUrls {
+	for _, url := range s.Configs.StartUrls {
 		log.Println("Starting with " + url)
-		s.workersWg.Add(len(s.StartUrls))
+		s.workersWg.Add(len(s.Configs.StartUrls))
 		go func(url string) { s.linksChannel <- url }(url)
 	}
 	s.workersWg.Wait()
 
-	for j := 1; j <= count*2; j++ {
+	for j := 1; j <= workersCount*2; j++ {
 		s.stopChannel <- struct{}{}
 	}
 
@@ -112,7 +115,7 @@ LOOP:
 
 		s.seenLinks[url] = &URLRecord{
 			Retries: 1,
-			Wait:    1000 * time.Millisecond,
+			Wait:    s.Configs.GetRetryDuration(),
 		}
 
 		s.linksMu.Unlock()
@@ -174,8 +177,18 @@ LOOP:
 	}
 }
 
-func (s *Spider) fetchContent(url string) (*Response, error) {
-	resp, err := http.Get(url)
+func (s *Spider) fetchContent(urlStr string) (*Response, error) {
+	request := s.Configs.GetRequest()
+	client := http.Client{}
+	urlInstance, err := url.Parse(urlStr)
+
+	if err != nil {
+		log.Fatalln("Malformed URL: %s", urlStr)
+	}
+
+	request.URL = urlInstance
+
+	resp, err := client.Do(&request)
 	if err != nil {
 		log.Println("Error downloading content")
 		return nil, err
@@ -189,7 +202,7 @@ func (s *Spider) fetchContent(url string) (*Response, error) {
 	defer resp.Body.Close()
 
 	response := Response{
-		URL:     url,
+		URL:     urlStr,
 		Content: body,
 	}
 
