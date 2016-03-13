@@ -1,5 +1,15 @@
 # goscrape
-A Go scraper inspired by Python's Scrapy (http://scrapy.org)
+A Go scraper inspired by Python's Scrapy (http://scrapy.org).
+
+This repository is still a work in progress
+
+Roadmap:
+
+1. Better logging
+2. Exporting scraped content to JSON, XML or other formats
+3. Web Interface for viewing jobs / creating dynamic scrapers
+4. Sitemap spider
+5. **Tests**
 
 # Example Code
 
