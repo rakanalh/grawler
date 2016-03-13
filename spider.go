@@ -1,6 +1,7 @@
 package goscrape
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -15,10 +16,19 @@ type ResponseParseHandler func(response *Response) ParseResult
 //ItemPipelineHandler is a definition for the function to be called to process data
 type ItemPipelineHandler func(parsedItem ParseItem)
 
+type FetchStatus uint8
+
+const (
+	Pending FetchStatus = iota
+	Failed
+	Succeeded
+)
+
 //URLRecord is a tool to help keep track of URL specific properties
 type URLRecord struct {
 	Retries uint8
 	Wait    time.Duration
+	Status  FetchStatus
 }
 
 // Response defines the attributes of parse response
@@ -43,11 +53,15 @@ type Spider struct {
 
 	// URL tracking
 	seenLinks map[string]*URLRecord
-	linksMu   sync.Mutex
+	linksMu   sync.RWMutex
 
 	// Workers
 	workersWg sync.WaitGroup
 	workersMu sync.RWMutex
+
+	// Reporting
+	LinksParsed []string
+	LinksFailed []string
 }
 
 // NewSpider creates and returns an initialized instance of a spider
@@ -60,7 +74,7 @@ func NewSpider(configs *Configs, parseHandler ResponseParseHandler, itemHandler 
 		parseChannel: make(chan *Response),
 		stopChannel:  make(chan struct{}),
 		seenLinks:    make(map[string]*URLRecord),
-		linksMu:      sync.Mutex{},
+		linksMu:      sync.RWMutex{},
 		workersWg:    sync.WaitGroup{},
 		workersMu:    sync.RWMutex{},
 	}
@@ -92,6 +106,8 @@ func (s *Spider) Start() {
 	close(s.linksChannel)
 	close(s.parseChannel)
 	close(s.stopChannel)
+
+	s.printReport()
 }
 
 // Crawl all pages defined as start pages
@@ -107,15 +123,18 @@ LOOP:
 		}
 
 		s.linksMu.Lock()
-		if _, ok := s.seenLinks[url]; ok {
+		if urlRecord, ok := s.seenLinks[url]; ok && urlRecord.Status == Succeeded {
 			s.linksMu.Unlock()
 			s.workersWg.Done()
 			continue
 		}
 
-		s.seenLinks[url] = &URLRecord{
-			Retries: 0,
-			Wait:    s.Configs.GetRetryDuration(),
+		if _, exists := s.seenLinks[url]; !exists {
+			s.seenLinks[url] = &URLRecord{
+				Retries: 0,
+				Wait:    s.Configs.GetRetryDuration(),
+				Status:  Pending,
+			}
 		}
 
 		s.linksMu.Unlock()
@@ -125,19 +144,39 @@ LOOP:
 		content, err := s.fetchContent(url)
 
 		if err != nil {
-			s.seenLinks[url].Retries++
+			s.linksMu.Lock()
+			urlRecord := s.seenLinks[url]
+			urlRecord.Retries++
+			urlRecord.Status = Failed
+			s.seenLinks[url] = urlRecord
+			s.linksMu.Unlock()
+
+			s.linksMu.RLock()
+
 			if s.seenLinks[url].Retries >= s.Configs.GetRetryMaxCount() {
-				return
+				log.Println("Skip URL: ", url)
+				s.LinksFailed = append(s.LinksFailed, url)
+				s.linksMu.RUnlock()
+				s.workersWg.Done()
+				continue
 			}
+			s.linksMu.RUnlock()
 			go func() {
 				// Sleep for the amout of "wait" second and then retry the same URL
+				s.linksMu.Lock()
 				time.Sleep(s.seenLinks[url].Wait)
-				s.linksChannel <- url
 
 				s.seenLinks[url].Wait *= 2
+				s.linksMu.Unlock()
+
+				s.linksChannel <- url
 			}()
 			continue
 		}
+
+		s.linksMu.Lock()
+		s.seenLinks[url].Status = Succeeded
+		s.linksMu.Unlock()
 
 		go func(response *Response) {
 			s.parseChannel <- response
@@ -173,6 +212,7 @@ LOOP:
 		if s.itemHandler != nil && item.Items != nil && len(item.Items) > 0 {
 			for _, item := range item.Items {
 				go s.itemHandler(item)
+				s.LinksParsed = append(s.LinksParsed, response.URL)
 			}
 		}
 
@@ -210,4 +250,11 @@ func (s *Spider) fetchContent(urlStr string) (*Response, error) {
 	}
 
 	return &response, nil
+}
+
+func (s *Spider) printReport() {
+	fmt.Println("Links scraped:")
+	fmt.Println("  - Count: ", len(s.LinksParsed))
+	fmt.Println("Links failed:")
+	fmt.Println("  - Count: ", len(s.LinksFailed))
 }
