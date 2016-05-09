@@ -1,4 +1,4 @@
-package extract
+package extractor
 
 // Css defines an interface that implements searching through CSS
 import (
@@ -20,6 +20,6 @@ func NewCss(content []byte) (*Css, error) {
 	return &Css{doc: doc}, nil
 }
 
-func (extractor *Css) Extract(selector string) (goquery.Selection, error) {
-	return *extractor.doc.Find(selector), nil
+func (ext *Css) Extract(selector string) (goquery.Selection, error) {
+	return *ext.doc.Find(selector), nil
 }

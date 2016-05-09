@@ -26,6 +26,7 @@ type Configs struct {
 	RetryMaxCount uint8
 }
 
+// GetRequest instantiates a default request object
 func (configs *Configs) GetRequest() http.Request {
 	if configs.Request.Method == "" {
 		request, err := http.NewRequest("GET", "", nil)
@@ -37,6 +38,8 @@ func (configs *Configs) GetRequest() http.Request {
 	return configs.Request
 }
 
+// GetWorkersCount returns the number of workers as the number
+// of available CPUs by default if not provided
 func (configs *Configs) GetWorkersCount() int {
 	if configs.WorkersCount == 0 {
 		return runtime.GOMAXPROCS(0)
@@ -44,6 +47,8 @@ func (configs *Configs) GetWorkersCount() int {
 	return configs.WorkersCount
 }
 
+// GetRetryDuration returns the default retry wait duration
+// if not provided
 func (configs *Configs) GetRetryDuration() time.Duration {
 	if configs.RetryDuration == 0 {
 		return time.Second
@@ -51,6 +56,8 @@ func (configs *Configs) GetRetryDuration() time.Duration {
 	return configs.RetryDuration
 }
 
+// GetRetryMaxCount returns the max number of retries
+// if not provided
 func (configs *Configs) GetRetryMaxCount() uint8 {
 	if configs.RetryMaxCount == 0 {
 		return 3

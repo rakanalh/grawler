@@ -1,4 +1,6 @@
-package extract
+// Package extractor provides a XPath & CSS abstract utilities to
+// enable easy data extraction from XML / HTML documents
+package extractor
 
 import (
 	"github.com/moovweb/gokogiri"
@@ -23,8 +25,8 @@ func NewXPath(content []byte) (*XPath, error) {
 }
 
 // Extract is asda
-func (extractor *XPath) Extract(expr string) ([]xml.Node, error) {
-	nodes, err := extractor.doc.Search(expr)
+func (ext *XPath) Extract(expr string) ([]xml.Node, error) {
+	nodes, err := ext.doc.Search(expr)
 	if err != nil {
 		return nil, err
 	}
@@ -32,8 +34,8 @@ func (extractor *XPath) Extract(expr string) ([]xml.Node, error) {
 }
 
 // Close the document once we're done using it
-func (extractor *XPath) Close() {
-	if extractor.doc != nil {
-		extractor.doc.Free()
+func (ext *XPath) Close() {
+	if ext.doc != nil {
+		ext.doc.Free()
 	}
 }

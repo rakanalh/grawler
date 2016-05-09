@@ -16,8 +16,10 @@ type ResponseParseHandler func(response *Response) ParseResult
 //ItemPipelineHandler is a definition for the function to be called to process data
 type ItemPipelineHandler func(parsedItem ParseItem)
 
+// FetchStatus is used to identify which links fetch operations resulted in what status
 type FetchStatus uint8
 
+// Declare multiple fetch statuses
 const (
 	Pending FetchStatus = iota
 	Failed
@@ -25,7 +27,7 @@ const (
 )
 
 //URLRecord is a tool to help keep track of URL specific properties
-type URLRecord struct {
+type urlRecord struct {
 	Retries uint8
 	Wait    time.Duration
 	Status  FetchStatus
@@ -52,7 +54,7 @@ type Spider struct {
 	stopChannel  chan struct{}
 
 	// URL tracking
-	seenLinks map[string]*URLRecord
+	seenLinks map[string]*urlRecord
 	linksMu   sync.RWMutex
 
 	// Workers
@@ -73,7 +75,7 @@ func NewSpider(configs *Configs, parseHandler ResponseParseHandler, itemHandler 
 		linksChannel: make(chan string),
 		parseChannel: make(chan *Response),
 		stopChannel:  make(chan struct{}),
-		seenLinks:    make(map[string]*URLRecord),
+		seenLinks:    make(map[string]*urlRecord),
 		linksMu:      sync.RWMutex{},
 		workersWg:    sync.WaitGroup{},
 		workersMu:    sync.RWMutex{},
@@ -123,14 +125,14 @@ LOOP:
 		}
 
 		s.linksMu.Lock()
-		if urlRecord, ok := s.seenLinks[url]; ok && urlRecord.Status == Succeeded {
+		if urlRec, ok := s.seenLinks[url]; ok && urlRec.Status == Succeeded {
 			s.linksMu.Unlock()
 			s.workersWg.Done()
 			continue
 		}
 
 		if _, exists := s.seenLinks[url]; !exists {
-			s.seenLinks[url] = &URLRecord{
+			s.seenLinks[url] = &urlRecord{
 				Retries: 0,
 				Wait:    s.Configs.GetRetryDuration(),
 				Status:  Pending,
@@ -145,10 +147,10 @@ LOOP:
 
 		if err != nil {
 			s.linksMu.Lock()
-			urlRecord := s.seenLinks[url]
-			urlRecord.Retries++
-			urlRecord.Status = Failed
-			s.seenLinks[url] = urlRecord
+			urlRec := s.seenLinks[url]
+			urlRec.Retries++
+			urlRec.Status = Failed
+			s.seenLinks[url] = urlRec
 			s.linksMu.Unlock()
 
 			s.linksMu.RLock()
@@ -232,6 +234,11 @@ func (s *Spider) fetchContent(urlStr string) (*Response, error) {
 	request.URL = urlInstance
 
 	resp, err := client.Do(&request)
+
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+
 	if err != nil {
 		log.Println("Error downloading content")
 		return nil, err
@@ -242,7 +249,6 @@ func (s *Spider) fetchContent(urlStr string) (*Response, error) {
 		log.Println("Error reading content")
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	response := Response{
 		URL:     urlStr,

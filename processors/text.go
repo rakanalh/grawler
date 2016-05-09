@@ -1,3 +1,5 @@
+// Package processors provides a set of utility methods for processing
+// CSS selectors / XPath nodes and converting them into texts
 package processors
 
 import (
@@ -5,6 +7,8 @@ import (
 	"github.com/moovweb/gokogiri/xml"
 )
 
+// GetLinks is a helper function to extract links out of an
+// xpath or css selector result
 func GetLinks(nodes interface{}) ([]string, error) {
 	var links []string
 	if selection, ok := nodes.(goquery.Selection); ok {
@@ -14,11 +18,12 @@ func GetLinks(nodes interface{}) ([]string, error) {
 			}
 		})
 	} else if xmlNodes, ok := nodes.([]xml.Node); ok {
-		links = getXmlNodesAsString(xmlNodes)
+		links = getXMLNodesAsString(xmlNodes)
 	}
 	return links, nil
 }
 
+// GetText returns the text of the provided nodes
 func GetText(nodes interface{}) []string {
 	var textNodes []string
 	if selection, ok := nodes.(goquery.Selection); ok {
@@ -26,12 +31,12 @@ func GetText(nodes interface{}) []string {
 			textNodes = append(textNodes, child.Text())
 		})
 	} else if xmlNodes, ok := nodes.([]xml.Node); ok {
-		textNodes = getXmlNodesAsString(xmlNodes)
+		textNodes = getXMLNodesAsString(xmlNodes)
 	}
 	return textNodes
 }
 
-func getXmlNodesAsString(xmlNodes []xml.Node) []string {
+func getXMLNodesAsString(xmlNodes []xml.Node) []string {
 	var textNodes []string
 	for _, node := range xmlNodes {
 		textNodes = append(textNodes, node.String())
